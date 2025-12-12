@@ -1,0 +1,46 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDE/editor settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Model artifacts
+models/
+models/*.pkl
+models/*.joblib
+models/*.h5
+models/*.pt
+
+# Annoy / index files
+*.ann
+products_ann_index.ann
+
+# Logs, tests, coverage
+*.log
+.pytest_cache/
+pytest_cache/
+htmlcov/
+.coverage
+
+# Build / packaging
+pip-wheel-metadata/
+*.egg-info/
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+
