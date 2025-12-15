@@ -42,6 +42,8 @@ def load_data():
             'brand': 'category'
         }
     )
+    df['product_id'] = df['product_id'].astype(str)
+
     # Handle missing values
     for col in df.columns:
         if pd.api.types.is_categorical_dtype(df[col]):

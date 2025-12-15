@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from utils import load_data, load_models, load_sales_predictor, load_similarity_matrix
-from recommendation_helpers import recommend, explain_recommendation, visualize_products, predict_sales_volume, get_similar_products_by_sales
+from recommendation_helpers import recommend, explain_recommendation, visualize_products, predict_sales_volume, get_similar_products_by_sales, sales_improvement_hints, to_df
 import plotly.express as px
 import plotly.graph_objects as go
 import sys
@@ -77,6 +77,23 @@ st.markdown("""
         border-radius: 10px;
         margin: 10px;
     }
+            /* --- Button Styling for Predict Button --- */
+        .stButton > button {
+            /* Set the base color to green */
+            background-color: #5ea879; 
+            color: white; 
+            border-color: #10b981;
+            transition: background-color 0.3s ease;
+        }
+
+        /* Change color on hover using the standard selector */
+        .stButton > button:hover {
+            background-color: #07db54; 
+            color: white;
+            border-color: #16a34a;
+            box-shadow: 0 4px 14px rgba(16,185,129,0.2);
+        }
+    
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,7 +103,7 @@ st.markdown("""
 st.sidebar.title("Navigation")
 page = st.sidebar.radio(
     "Select Page",
-    ["Home", "Product Search & Recommendations", "Analytics Dashboard", "Market Insights", "Sales Volume Predictor"]
+    ["Home","Sales Volume Predictor", "Product Search & Recommendations", "Analytics Dashboard", "Market Insights" ]
 )
 
 # ==============================================================================
@@ -235,12 +252,10 @@ elif page == "Product Search & Recommendations":
                     with st.expander("View Explainability"):
                         try:
                             explanation = explain_recommendation(
-                                selected_product_id,
-                                recommendations.iloc[0]['product_id'],
-                                product_id_to_index,
-                                pipeline,
-                                df
-                            )
+                                        selected_product_id,
+                                        recommendations.iloc[0]['product_id'],
+                                        df
+                                    )
                             if explanation:
                                 st.info(f"**Top matching features:** {explanation}")
                         except Exception as e:
@@ -549,36 +564,39 @@ elif page == "Sales Volume Predictor":
                 if result:
                     st.markdown("---")
                     st.subheader("📊 Prediction Results")
-                    
-                    # Main prediction metric
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric(
-                            "🎯 Predicted Sales",
-                            f"{result['prediction']:.0f}",
-                            delta=f"{result['prediction'] - result['dataset_mean']:.0f}"
-                        )
-                    
-                    with col2:
-                        st.metric(
-                            "📈 Dataset Average",
-                            f"{result['dataset_mean']:.0f}"
-                        )
-                    
-                    with col3:
-                        st.metric(
-                            "📍 Dataset Median",
-                            f"{result['dataset_median']:.0f}"
-                        )
-                    
-                    with col4:
-                        st.metric(
-                            "📊 Percentile Rank",
-                            f"{result['percentile']:.1f}%",
-                            help="% of products with lower sales volume"
-                        )
-                    
+
+                    # Emphasize predicted sales: large left card, compact stats on right
+                    left, right = st.columns([3, 1])
+
+                    with left:
+                        pred = int(round(result['prediction']))
+                        mean = int(round(result['dataset_mean']))
+                        delta_val = int(round(result['prediction'] - result['dataset_mean']))
+                        pct = result.get('percentile', 0.0)
+
+                        # Large visual for predicted sales
+                        st.markdown(f"""
+                        <div style="display:flex;align-items:center;justify-content:space-between;padding:18px;border-radius:10px;background:linear-gradient(90deg,#edf2ff,#e6fffa);">
+                            <div style="flex:1">
+                                <div style="font-size:28px;color:#1f2937;margin-bottom:6px;">🎯 Predicted Sales</div>
+                                <div style="font-size:56px;font-weight:700;color:#0b5b8c;">{pred:,}</div>
+                                <div style="font-size:14px;color:#374151;margin-top:6px;">vs catalog mean: <b>{mean:,}</b> &nbsp; (<span style="color:{'#059669' if delta_val>0 else '#b91c1c'}">{('+' if delta_val>=0 else '')}{delta_val:,}</span>)</div>
+                            </div>
+                            <div style="width:160px;text-align:center;padding-left:18px;border-left:1px solid rgba(0,0,0,0.06)">
+                                <div style="font-size:12px;color:#6b7280">Percentile</div>
+                                <div style="font-size:28px;font-weight:700;color:#111827;margin-top:6px">{pct:.1f}%</div>
+                                <div style="font-size:11px;color:#6b7280;margin-top:6px">% of products below this estimate</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    with right:
+                        # Compact supporting metrics
+                        st.markdown("<div style='padding:6px'>", unsafe_allow_html=True)
+                        st.metric("📈 Dataset Average", f"{result['dataset_mean']:.0f}")
+                        st.metric("📍 Dataset Median", f"{result['dataset_median']:.0f}")
+                        st.markdown("</div>", unsafe_allow_html=True)
+
                     st.markdown("---")
                     sigma = result['dataset_std']
                     
@@ -594,6 +612,25 @@ elif page == "Sales Volume Predictor":
                         interpretation = "🔴 **Lower Sales Potential** - Consider optimizing price, description, or features."
                     
                     st.info(interpretation)
+
+                    st.markdown("---")
+                    st.subheader("🚀 What could increase sales?")
+
+                    input_dict = input_df.iloc[0].to_dict()
+
+
+                    base_pred, improvements = sales_improvement_hints(
+                        input_dict,
+                        sales_model,
+                        df
+                    )
+
+                    if improvements:
+                        for label, delta in improvements[:4]:
+                            st.success(f"{label} → **+{int(delta)} sales units**")
+                    else:
+                        st.info("This product is already near optimal based on the model.")
+
                     
                     # Show similar products by sales
                     st.markdown("---")

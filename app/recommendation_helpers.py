@@ -3,7 +3,7 @@ Recommendation and helper functions for the dashboard.
 """
 import pandas as pd
 import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
+
 
 
 def recommend(product_id, product_id_to_index, sim_matrix, df, top_n=5, include_score=False):
@@ -52,41 +52,42 @@ def recommend(product_id, product_id_to_index, sim_matrix, df, top_n=5, include_
         return None
 
 
-def explain_recommendation(query_product_id, rec_product_id, product_id_to_index, pipeline, df):
+def explain_recommendation(query_product_id, rec_product_id, df):
     """
     Generate a simple explanation for why a product is recommended.
-    
-    Args:
-        query_product_id (str): Query product ID
-        rec_product_id (str): Recommended product ID
-        product_id_to_index (dict): Mapping from product_id to DataFrame index
-        pipeline: Scikit-learn pipeline with TF-IDF vectorizer
-        df (pd.DataFrame): Product dataframe
-    
-    Returns:
-        str: Explanation text
     """
     try:
-        query_idx = product_id_to_index[query_product_id]
-        rec_idx = product_id_to_index[rec_product_id]
-        
-        query_product = df.iloc[query_idx]
-        rec_product = df.iloc[rec_idx]
-        
-        # Find common attributes
+        query_product_id = str(query_product_id)
+        rec_product_id = str(rec_product_id)
+
+        query_rows = df[df['product_id'] == query_product_id]
+        rec_rows = df[df['product_id'] == rec_product_id]
+
+        if query_rows.empty or rec_rows.empty:
+            return "High similarity in product descriptions, naming patterns, and overall style"
+
+
+        query_product = query_rows.iloc[0]
+        rec_product = rec_rows.iloc[0]
+
         common_attrs = []
-        
         attrs_to_check = ['section', 'season', 'material', 'brand']
+
         for attr in attrs_to_check:
-            if query_product.get(attr) == rec_product.get(attr):
+            q_val = str(query_product.get(attr, "")).lower()
+            r_val = str(rec_product.get(attr, "")).lower()
+
+            if q_val and r_val and (q_val in r_val or r_val in q_val):
                 common_attrs.append(f"{attr}: {query_product[attr]}")
-        
+
+
         if common_attrs:
             return "Shared attributes: " + ", ".join(common_attrs)
         else:
-            return "Similar text features and product metadata"
-    except Exception as e:
-        return f"Error generating explanation: {e}"
+            return "Similar descriptions, categories, and product features"
+
+    except Exception:
+        return "Explanation unavailable for this recommendation"
 
 
 def visualize_products(products_df, title="Products Visualization"):
@@ -153,3 +154,51 @@ def get_similar_products_by_sales(target_sales, df, tolerance=0.1, top_n=5):
     ].nlargest(top_n, 'sales_volume')[['product_id', 'name', 'section', 'price', 'sales_volume', 'material']]
     
     return similar.astype(str)
+
+
+def sales_improvement_hints(input_data, model, df):
+    """
+    Generate 'what-if' suggestions using the same prediction path as the app.
+    """
+    base_result = predict_sales_volume(to_df(input_data), model, df)
+    base_pred = base_result["prediction"]
+
+    suggestions = []
+
+    def try_change(label, new_data):
+        result = predict_sales_volume(to_df(new_data), model, df)
+        if result:
+            delta = result["prediction"] - base_pred
+            if delta > 0:
+                suggestions.append((label, delta))
+
+    # 1️⃣ Promotion
+    if input_data.get("promotion", 0) == 0:
+        tmp = dict(input_data)
+        tmp["promotion"] = 1
+        try_change("📢 Add promotion", tmp)
+
+    # 2️⃣ Price reduction
+    if input_data.get("price", 0) > 5:
+        tmp = dict(input_data)
+        tmp["price"] *= 0.9
+        try_change("💰 Reduce price by 10%", tmp)
+
+    # 3️⃣ Longer description
+    if input_data.get("desc_word_count", 0) < 20:
+        tmp = dict(input_data)
+        tmp["desc_word_count"] += 10
+        try_change("📝 Improve product description", tmp)
+
+    # 4️⃣ Popular material
+    top_material = df["material"].value_counts().idxmax()
+    if input_data.get("material") != top_material:
+        tmp = dict(input_data)
+        tmp["material"] = top_material
+        try_change(f"🧵 Switch material to {top_material}", tmp)
+
+    suggestions.sort(key=lambda x: x[1], reverse=True)
+    return base_pred, suggestions
+
+def to_df(d):
+    return pd.DataFrame([d])
