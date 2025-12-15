@@ -15,16 +15,19 @@ __pycache__/
 *.njsproj
 *.sln
 
-# Model artifacts
-models/
+# Model artifacts and serialized arrays (generated from notebooks, not committed)
 models/*.pkl
 models/*.joblib
 models/*.h5
 models/*.pt
+models/*.npy
+models/*.npz
+models/*.ann
 
-# Annoy / index files
+# Annoy / FAISS index files
 *.ann
 products_ann_index.ann
+*.faiss
 
 # Logs, tests, coverage
 *.log
