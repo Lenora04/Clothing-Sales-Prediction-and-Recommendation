@@ -96,14 +96,14 @@ Example explanations:
 ![UI Screenshot](screenshots/Screenshot 2025-12-15 205147.png)
 
 ### Sales Volume Predictor
-![UI Screenshot](screenshots/Screenshot 2025-12-15 204706.png)
-![UI Screenshot](screenshots/Screenshot 2025-12-15 204855.png)
-![UI Screenshot](screenshots/Screenshot 2025-12-15 204927.png)
+![UI Screenshot](screenshots/Screenshot_2025-12-15_204706.png)
+![UI Screenshot](screenshots/Screenshot_2025-12-15_204855.png)
+![UI Screenshot](screenshots/Screenshot_2025-12-15_204927.png)
 
 
 ### Product Search & Recommendations
-![UI Screenshot](screenshots/Screenshot 2025-12-15 210516.png)
-![UI Screenshot](screenshots/Screenshot 2025-12-15 210553.png)
+![UI Screenshot](screenshots/Screenshot_2025-12-15_210516.png)
+![UI Screenshot](screenshots/Screenshot_2025-12-15_210553.png)
 
 ### Analytics Dashboard
 ![UI Screenshot](screenshots/Screenshot 2025-12-15 003003.png)
