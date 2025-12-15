@@ -53,41 +53,63 @@ def recommend(product_id, product_id_to_index, sim_matrix, df, top_n=5, include_
 
 
 def explain_recommendation(query_product_id, rec_product_id, df):
-    """
-    Generate a simple explanation for why a product is recommended.
-    """
     try:
-        query_product_id = str(query_product_id)
-        rec_product_id = str(rec_product_id)
+        df_ids = df.copy()
+        df_ids['product_id'] = df_ids['product_id'].astype(str)
 
-        query_rows = df[df['product_id'] == query_product_id]
-        rec_rows = df[df['product_id'] == rec_product_id]
+        query_id = str(query_product_id)
+        rec_id = str(rec_product_id)
+
+        query_rows = df_ids[df_ids['product_id'] == query_id]
+        rec_rows = df_ids[df_ids['product_id'] == rec_id]
 
         if query_rows.empty or rec_rows.empty:
-            return "High similarity in product descriptions, naming patterns, and overall style"
+            return "Recommended due to overall similarity across product features."
 
+        q = query_rows.iloc[0]
+        r = rec_rows.iloc[0]
 
-        query_product = query_rows.iloc[0]
-        rec_product = rec_rows.iloc[0]
+        reasons = []
 
-        common_attrs = []
-        attrs_to_check = ['section', 'season', 'material', 'brand']
+        #  Strong categorical matches
+        if q['material'] == r['material']:
+            reasons.append(f" Same material ({q['material']})")
 
-        for attr in attrs_to_check:
-            q_val = str(query_product.get(attr, "")).lower()
-            r_val = str(rec_product.get(attr, "")).lower()
+        if q['section'] == r['section']:
+            reasons.append(f" Same section ({q['section']})")
 
-            if q_val and r_val and (q_val in r_val or r_val in q_val):
-                common_attrs.append(f"{attr}: {query_product[attr]}")
+        if q['season'] == r['season']:
+            reasons.append(f" Same season ({q['season']})")
 
+        if 'brand' in df.columns and q.get('brand') == r.get('brand'):
+            reasons.append(f" Same brand ({q['brand']})")
 
-        if common_attrs:
-            return "Shared attributes: " + ", ".join(common_attrs)
-        else:
-            return "Similar descriptions, categories, and product features"
+        # Text overlap (simple + fast)
+        q_words = set(str(q['name']).lower().split())
+        r_words = set(str(r['name']).lower().split())
+        common_words = q_words & r_words
+
+        if len(common_words) >= 2:
+            reasons.append("📝 Similar product name keywords")
+
+        # 3️Price proximity (soft signal)
+        try:
+            price_diff = abs(float(q['price']) - float(r['price']))
+            if price_diff <= 5:
+                reasons.append("💰 Similar price range")
+        except:
+            pass
+
+        #  Final output
+        if reasons:
+            return " | ".join(reasons[:3])
+
+        return "Recommended based on overall similarity in text and metadata."
 
     except Exception:
-        return "Explanation unavailable for this recommendation"
+        return "Recommended based on overall product similarity."
+
+
 
 
 def visualize_products(products_df, title="Products Visualization"):
