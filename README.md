@@ -106,10 +106,10 @@ Example explanations:
 ![UI Screenshot](screenshots/Screenshot_2025-12-15_210553.png)
 
 ### Analytics Dashboard
-![UI Screenshot](screenshots/Screenshot_2025-12-15_003003.png)
+![UI Screenshot](screenshots/Screenshot_2025-12-16_003003.png)
 
 ### Market Insights
-![UI Screenshot](screenshots/Screenshot_2025-12-15_003118.png)
+![UI Screenshot](screenshots/Screenshot_2025-12-16_003118.png)
 
 ---
 
