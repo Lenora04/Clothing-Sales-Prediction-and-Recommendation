@@ -6,13 +6,16 @@ import numpy as np
 import joblib
 import os
 
-DATA_PATH = '../data/processed/clean_clothing_sales.csv'
-PIPELINE_PATH = '../models/hybrid_recommender_pipeline.pkl'
-SVD_PATH = '../models/svd_transformer.pkl'
-SIM_MATRIX_PATH = '../models/hybrid_similarity_matrix.npz'
-SALES_PREDICTOR_PATH = '../models/sales_gb_tuned_pipeline.pkl'
-FEATURE_PIPELINE_PATH = '../models/feature_engineering_pipeline.pkl'
-MODELS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'models'))
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DATA_PATH = os.path.join(BASE_DIR, '..', 'data', 'processed', 'clean_clothing_sales.csv')
+PIPELINE_PATH = os.path.join(BASE_DIR, '..', 'models', 'hybrid_recommender_pipeline.pkl')
+SVD_PATH = os.path.join(BASE_DIR, '..', 'models', 'svd_transformer.pkl')
+SIM_MATRIX_PATH = os.path.join(BASE_DIR, '..', 'models', 'hybrid_similarity_matrix.npz')
+SALES_PREDICTOR_PATH = os.path.join(BASE_DIR, '..', 'models', 'sales_gb_tuned_pipeline.pkl')
+FEATURE_PIPELINE_PATH = os.path.join(BASE_DIR, '..', 'models', 'feature_engineering_pipeline.pkl')
+MODELS_DIR = os.path.abspath(os.path.join(BASE_DIR, '..', 'models'))
 
 
 def load_data():
