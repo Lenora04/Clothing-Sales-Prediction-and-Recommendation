@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+from huggingface_hub import hf_hub_download
 
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,6 +19,8 @@ SVD_PATH = os.path.join(MODELS_DIR, 'svd_transformer.pkl')
 SIM_MATRIX_PATH = os.path.join(MODELS_DIR, 'hybrid_similarity_matrix.npz')
 SALES_PREDICTOR_PATH = os.path.join(MODELS_DIR, 'sales_gb_tuned_pipeline.pkl')
 FEATURE_PIPELINE_PATH = os.path.join(MODELS_DIR, 'feature_engineering_pipeline.pkl')
+
+REPO_ID = "lenoraravindi/clothing-sales-models"
 
 
 def load_data():
@@ -65,24 +68,13 @@ def load_data():
 
 
 def load_models():
-    """
-    Load pre-trained pipeline and SVD transformer.
-    Similarity matrix is loaded lazily on first use.
+    # This downloads the file from HF and returns the local cached path
+    pipeline_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_recommender_pipeline.pkl")
+    pipeline = joblib.load(pipeline_path)
     
-    Returns:
-        tuple: (pipeline, svd, None)  # sim_matrix loaded later
-    """
-    # Load pipeline
-    if not os.path.exists(PIPELINE_PATH):
-        raise FileNotFoundError(f"Pipeline not found at {PIPELINE_PATH}")
-    pipeline = joblib.load(PIPELINE_PATH)
+    svd_path = hf_hub_download(repo_id=REPO_ID, filename="svd_transformer.pkl")
+    svd = joblib.load(svd_path)
     
-    # Load SVD
-    svd = None
-    if os.path.exists(SVD_PATH):
-        svd = joblib.load(SVD_PATH)
-    
-    # Don't load similarity matrix here - lazy load it only when needed
     return pipeline, svd, None
 
 
@@ -97,6 +89,8 @@ def load_similarity_matrix():
     # Prefer a memory-mapped float32 .npy file for fast, low-memory loads
     npy_path = os.path.join(MODELS_DIR, 'hybrid_similarity_matrix_float32.npy')
     compressed_path = os.path.join(MODELS_DIR, 'hybrid_similarity_matrix_float32.npz')
+    matrix_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_similarity_matrix.npz")
+    sim_matrix_data = np.load(matrix_path)
 
     if os.path.exists(npy_path):
         # Load as memory-mapped read-only array
