@@ -7,3 +7,5 @@ plotly
 matplotlib
 seaborn
 annoy
+huggingface_hub
+
