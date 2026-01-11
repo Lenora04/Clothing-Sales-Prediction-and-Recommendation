@@ -68,6 +68,7 @@ def main():
                 price = st.number_input("Price ($)", 0.0, 1000.0, 45.0)
                 promo = st.selectbox("Promotion", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
                 material = st.selectbox("Material", df['material'].unique())
+                terms = st.selectbox("🔍 Product Term", df['terms'].unique().tolist())
             with col2:
                 section = st.selectbox("Section", df['section'].unique())
                 season = st.selectbox("Season", df['season'].unique())
