@@ -71,6 +71,7 @@ def main():
             with col2:
                 section = st.selectbox("Section", df['section'].unique())
                 season = st.selectbox("Season", df['season'].unique())
+                product_position = st.selectbox("Position", ['Aisle', 'End-cap', 'Front of Store'])
                 origin = st.selectbox("Origin", df['origin'].unique())
                 desc = st.text_area("Description", "Enter product details...")
             
