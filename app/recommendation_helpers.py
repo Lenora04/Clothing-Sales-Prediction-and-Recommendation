@@ -223,4 +223,22 @@ def sales_improvement_hints(input_data, model, df):
     return base_pred, suggestions
 
 def to_df(d):
-    return pd.DataFrame([d])
+    """
+    Converts input dictionary to a DataFrame and ensures all 
+    engineered features required by the model are present.
+    """
+    input_df = pd.DataFrame([d])
+    
+    # Ensure engineered features exist (same logic as in app.py)
+    if 'description' in input_df.columns:
+        input_df['desc_len'] = input_df['description'].astype(str).str.len()
+        input_df['desc_word_count'] = input_df['description'].astype(str).str.split().str.len()
+    
+    if 'name' in input_df.columns:
+        input_df['name_len'] = input_df['name'].astype(str).str.len()
+        input_df['name_word_count'] = input_df['name'].astype(str).str.split().str.len()
+
+    # Avoid division by zero
+    input_df['price_per_word'] = input_df['price'] / (input_df.get('desc_word_count', 0) + 1)
+    
+    return input_df
