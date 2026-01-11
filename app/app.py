@@ -161,113 +161,94 @@ elif page == "Product Search & Recommendations":
     st.title("Product Search & Recommendations")
     st.markdown("---")
     
-    # Lazy-load similarity matrix on first access to recommendations page
+    # Lazy-load similarity matrix on first access
     if sim_matrix is None:
         with st.status("Fetching heavy model data from Hugging Face...", expanded=True) as status:
             sim_matrix = get_sim_matrix_cached()
             status.update(label="Model Loaded!", state="complete", expanded=False)
     
-    # Cache product names in session state for faster rendering
     if 'product_names_cache' not in st.session_state:
         st.session_state.product_names_cache = df['name'].unique().tolist()
     
-    # Product selection
     col1, col2 = st.columns([3, 1])
-    
     with col1:
         selected_product_name = st.selectbox(
             "Select a Product",
             st.session_state.product_names_cache,
             key="product_select"
         )
-    
     with col2:
         top_n = st.number_input("Top N Recommendations", min_value=1, max_value=20, value=5)
     
     if selected_product_name:
-        # Get product_id from name
         matching_rows = df[df['name'] == selected_product_name]
         if len(matching_rows) > 0:
             selected_product_id = matching_rows.iloc[0]['product_id']
-            
-            # Display query product
-            st.markdown("### Selected Product")
-            query_product = df[df['product_id'] == selected_product_id].iloc[0]
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Price", f"${query_product['price']:.2f}")
-            with col2:
-                st.metric("Section", query_product['section'])
-            with col3:
-                st.metric("Season", query_product['season'])
-            with col4:
-                st.metric("Material", query_product['material'])
-            
-            # Display product details
-            with st.expander("📋 View Full Details"):
-                # Convert to dict for safe display
-                details_dict = query_product.to_dict()
-                for key, value in details_dict.items():
-                    st.write(f"**{key}**: {value}")
-            
-            st.markdown("---")
-            
-            # Get recommendations
-            st.markdown("### 🎯 Recommended Products")
-            try:
-                recommendations = recommend(
-                    selected_product_id, 
-                    product_id_to_index, 
-                    sim_matrix, 
-                    df, 
-                    top_n=top_n,
-                    include_score=True
-                )
+            idx = product_id_to_index.get(selected_product_id)
+
+            # 🛑 1. Check if product is in the Lite matrix range
+            if idx is None or idx >= sim_matrix.shape[0]:
+                st.warning("⚠️ This product is not in the 'Lite' demo database. Please select a product from the top of the list to see recommendations.")
                 
-                if recommendations is not None and len(recommendations) > 0:
-                    # Display recommendations in a grid
-                    cols = st.columns(min(3, len(recommendations)))
-                    for idx, (_, rec) in enumerate(recommendations.iterrows()):
-                        with cols[idx % 3]:
-                            st.markdown(f"""
-                            <div class="card">
-                                <h4>{rec['name'][:30]}...</h4>
-                                <p><b>Price:</b> ${rec['price']:.2f}</p>
-                                <p><b>Section:</b> {rec['section']}</p>
-                                <p><b>Material:</b> {rec['material']}</p>
-                                <p><b>Similarity Score:</b> {rec.get('score', 0):.3f}</p>
-                                <a href="{rec['url']}" target="_blank">View Product →</a>
-                            </div>
-                            """, unsafe_allow_html=True)
+                # We still show the product details even if we can't recommend
+                st.markdown("### Selected Product Details")
+                st.write(df[df['product_id'] == selected_product_id].iloc[0].to_dict())
+            
+            # 🛑 2. If it IS in the matrix, run the full UI
+            else:   
+                st.markdown("### Selected Product")
+                query_product = df[df['product_id'] == selected_product_id].iloc[0]
+                
+                # Metrics Row
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Price", f"${query_product['price']:.2f}")
+                m2.metric("Section", query_product['section'])
+                m3.metric("Season", query_product['season'])
+                m4.metric("Material", query_product['material'])
+                
+                with st.expander("📋 View Full Details"):
+                    st.write(query_product.to_dict())
+                
+                st.markdown("---")
+                st.markdown("### 🎯 Recommended Products")
+                
+                try:
+                    recommendations = recommend(
+                        selected_product_id, 
+                        product_id_to_index, 
+                        sim_matrix, 
+                        df, 
+                        top_n=top_n,
+                        include_score=True
+                    )
                     
-                    st.markdown("---")
-                    
-                    # Explainability
-                    st.markdown("### 💡 Why These Recommendations?")
-                    with st.expander("View Explainability"):
-                        try:
-                            explanation = explain_recommendation(
-                                        selected_product_id,
-                                        recommendations.iloc[0]['product_id'],
-                                        df
-                                    )
-                            if explanation:
-                                st.info(f"**Top matching features:** {explanation}")
-                        except Exception as e:
-                            st.warning(f"Could not generate explanation: {e}")
-                    
-                    # Show all recommendations as table
-                    st.markdown("### 📋 Detailed Recommendations Table")
-                    display_cols = [col for col in ['name', 'section', 'season', 'material', 'price', 'score'] 
-                                   if col in recommendations.columns]
-                    # Convert to Arrow-compatible types
-                    rec_display = recommendations[display_cols].astype(str)
-                    st.dataframe(rec_display, use_container_width=True)
-                else:
-                    st.warning("No recommendations found.")
-            except Exception as e:
-                st.error(f"Error generating recommendations: {e}")
+                    if recommendations is not None and not recommendations.empty:
+                        # Grid Display
+                        rec_cols = st.columns(min(3, len(recommendations)))
+                        for i, (_, rec) in enumerate(recommendations.iterrows()):
+                            with rec_cols[i % 3]:
+                                st.markdown(f"""
+                                <div class="card">
+                                    <h4>{rec['name'][:30]}...</h4>
+                                    <p><b>Price:</b> ${rec['price']:.2f}</p>
+                                    <p><b>Similarity:</b> {rec.get('score', 0):.3f}</p>
+                                    <a href="{rec.get('url', '#')}" target="_blank">View Product →</a>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        
+                        # Explainability
+                        st.markdown("---")
+                        st.markdown("### 💡 Why These Recommendations?")
+                        with st.expander("View Explainability"):
+                            explanation = explain_recommendation(selected_product_id, recommendations.iloc[0]['product_id'], df)
+                            st.info(f"**Top matching features:** {explanation}")
+                            
+                        # Table
+                        st.markdown("### 📋 Detailed Recommendations Table")
+                        st.dataframe(recommendations[['name', 'section', 'price', 'score']].astype(str), use_container_width=True)
+                
+                except Exception as e:
+                    st.error(f"Error generating recommendations: {e}")
 
 # ==============================================================================
 # PAGE: ANALYTICS DASHBOARD
