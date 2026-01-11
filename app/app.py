@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import sys
+import os
+
 from utils import (
     get_data_cached, get_models_cached, 
     get_sales_predictor_cached, get_sim_matrix_cached
@@ -9,6 +12,8 @@ from recommendation_helpers import (
     recommend, explain_recommendation, predict_sales_volume, 
     to_df, sales_improvement_hints
 )
+
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 def main():
     # 1. Setup
