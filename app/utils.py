@@ -42,7 +42,7 @@ def load_data():
     product_id_to_index = pd.Series(df.index.values, index=df['product_id']).to_dict()
     return df, product_id_to_index
 
-@st.cache_resource
+
 def load_models():
     """
     Loads the recommendation pipelines from Hugging Face.
