@@ -6,50 +6,6 @@ import numpy as np
 
 
 
-def recommend(product_id, product_id_to_index, sim_matrix, df, top_n=5, include_score=False):
-    """
-    Get top-N product recommendations based on similarity matrix.
-    
-    Args:
-        product_id (str): Target product ID
-        product_id_to_index (dict): Mapping from product_id to DataFrame index
-        sim_matrix (np.ndarray): Precomputed similarity matrix
-        df (pd.DataFrame): Product dataframe
-        top_n (int): Number of recommendations to return
-        include_score (bool): Whether to include similarity scores
-    
-    Returns:
-        pd.DataFrame: Recommended products with details
-    """
-    try:
-        if product_id not in product_id_to_index:
-            return None
-        
-        idx = product_id_to_index[product_id]
-        scores = sim_matrix[idx]
-        
-        # Get top indices (excluding the product itself)
-        top_indices = np.argsort(scores)[::-1]
-        top_indices = top_indices[top_indices != idx][:top_n]
-        
-        results = df.iloc[top_indices].copy()
-        results = results[['product_id', 'name', 'section', 'price', 'season', 'material', 'url']].reset_index(drop=True)
-        
-        if include_score:
-            results['score'] = scores[top_indices]
-        
-        # Convert to string to ensure Arrow compatibility
-        #results = results.astype(str)
-
-        for col in results.columns:
-            if col not in ['price', 'score']:
-                results[col] = results[col].astype(str)
-
-
-        return results
-    except Exception as e:
-        print(f"Error in recommend: {e}")
-        return None
 
 
 def explain_recommendation(query_product_id, rec_product_id, df):
@@ -178,49 +134,37 @@ def get_similar_products_by_sales(target_sales, df, tolerance=0.1, top_n=5):
     return similar.astype(str)
 
 
-def sales_improvement_hints(input_data, model, df):
-    """
-    Generate 'what-if' suggestions using the same prediction path as the app.
-    """
-    base_result = predict_sales_volume(to_df(input_data), model, df)
-    base_pred = base_result["prediction"]
+def recommend(product_id, product_id_to_index, sim_matrix, df, top_n=5, include_score=False):
+    try:
+        if product_id not in product_id_to_index:
+            return pd.DataFrame() # Return empty instead of None
+        
+        idx = product_id_to_index[product_id]
+        
+        # 🛑 SAFETY CHECK: Ensure the index is within the sliced matrix bounds
+        if idx >= sim_matrix.shape[0]:
+            return pd.DataFrame()
 
-    suggestions = []
+        scores = sim_matrix[idx]
+        
+        # Get top indices (excluding the product itself)
+        top_indices = np.argsort(scores)[::-1]
+        top_indices = top_indices[top_indices != idx][:top_n]
+        
+        results = df.iloc[top_indices].copy()
+        
+        if include_score:
+            results['score'] = scores[top_indices]
+            
+        # Ensure price and score are numeric for formatting, others as strings
+        for col in results.columns:
+            if col not in ['price', 'score', 'sales_volume']:
+                results[col] = results[col].astype(str)
 
-    def try_change(label, new_data):
-        result = predict_sales_volume(to_df(new_data), model, df)
-        if result:
-            delta = result["prediction"] - base_pred
-            if delta > 0:
-                suggestions.append((label, delta))
-
-    # 1️⃣ Promotion
-    if input_data.get("promotion", 0) == 0:
-        tmp = dict(input_data)
-        tmp["promotion"] = 1
-        try_change("📢 Add promotion", tmp)
-
-    # 2️⃣ Price reduction
-    if input_data.get("price", 0) > 5:
-        tmp = dict(input_data)
-        tmp["price"] *= 0.9
-        try_change("💰 Reduce price by 10%", tmp)
-
-    # 3️⃣ Longer description
-    if input_data.get("desc_word_count", 0) < 20:
-        tmp = dict(input_data)
-        tmp["desc_word_count"] += 10
-        try_change("📝 Improve product description", tmp)
-
-    # 4️⃣ Popular material
-    top_material = df["material"].value_counts().idxmax()
-    if input_data.get("material") != top_material:
-        tmp = dict(input_data)
-        tmp["material"] = top_material
-        try_change(f"🧵 Switch material to {top_material}", tmp)
-
-    suggestions.sort(key=lambda x: x[1], reverse=True)
-    return base_pred, suggestions
+        return results
+    except Exception as e:
+        print(f"Error in recommend: {e}")
+        return pd.DataFrame()
 
 def to_df(d):
     """
@@ -229,16 +173,52 @@ def to_df(d):
     """
     input_df = pd.DataFrame([d])
     
-    # Ensure engineered features exist (same logic as in app.py)
-    if 'description' in input_df.columns:
-        input_df['desc_len'] = input_df['description'].astype(str).str.len()
-        input_df['desc_word_count'] = input_df['description'].astype(str).str.split().str.len()
+    # Ensure all strings are strings
+    input_df['description'] = input_df['description'].astype(str)
+    input_df['name'] = input_df['name'].astype(str)
     
-    if 'name' in input_df.columns:
-        input_df['name_len'] = input_df['name'].astype(str).str.len()
-        input_df['name_word_count'] = input_df['name'].astype(str).str.split().str.len()
+    # Feature Engineering (MUST match the training logic exactly)
+    input_df['desc_len'] = input_df['description'].str.len()
+    input_df['name_len'] = input_df['name'].str.len()
+    input_df['desc_word_count'] = input_df['description'].str.split().str.len()
+    input_df['name_word_count'] = input_df['name'].str.split().str.len()
 
-    # Avoid division by zero
-    input_df['price_per_word'] = input_df['price'] / (input_df.get('desc_word_count', 0) + 1)
+    # Derived Features
+    input_df['price_per_word'] = input_df['price'] / (input_df['desc_word_count'] + 1)
+    input_df['price_per_name_word'] = input_df['price'] / (input_df['name_word_count'] + 1)
     
     return input_df
+
+def sales_improvement_hints(input_data, model, df):
+    """
+    Generate 'what-if' suggestions.
+    """
+    # Use to_df to ensure engineered features are calculated before prediction
+    base_df = to_df(input_data)
+    base_result = predict_sales_volume(base_df, model, df)
+    base_pred = base_result["prediction"]
+
+    suggestions = []
+
+    def try_change(label, new_data):
+        # Always run through to_df to recalculate engineered features like price_per_word
+        test_df = to_df(new_data)
+        result = predict_sales_volume(test_df, model, df)
+        if result:
+            delta = result["prediction"] - base_pred
+            if delta > 1: # Only suggest if improvement is significant
+                suggestions.append((label, delta))
+
+    # 1. Promotion Logic
+    if input_data.get("promotion") == 0:
+        tmp = input_data.copy()
+        tmp["promotion"] = 1
+        try_change("📢 Enable Promotion", tmp)
+
+    # 2. Price reduction (10% off)
+    tmp_price = input_data.copy()
+    tmp_price["price"] *= 0.9
+    try_change("💰 10% Price Discount", tmp_price)
+
+    suggestions.sort(key=lambda x: x[1], reverse=True)
+    return base_pred, suggestions
