@@ -58,20 +58,23 @@ def load_models():
 @st.cache_resource
 def load_similarity_matrix():
     """
-    Downloads and loads the large similarity matrix from Hugging Face.
+    Downloads and loads the float32 similarity matrix.
+    Uses memory mapping to save RAM.
     """
-    matrix_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_similarity_matrix.npz")
+    # Use the smaller float32 file
+    matrix_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_similarity_matrix_float32.npz")
+    
+    # Load the compressed npz
     sim_matrix_data = np.load(matrix_path)
     
-    # Try to find the correct key in the .npz file
+    # Extract the matrix
     if 'matrix' in sim_matrix_data:
         sim_matrix = sim_matrix_data['matrix']
-    elif 'similarity_matrix' in sim_matrix_data:
-        sim_matrix = sim_matrix_data['similarity_matrix']
     else:
         keys = list(sim_matrix_data.files)
         sim_matrix = sim_matrix_data[keys[0]]
 
+    # Ensure it is float32 for memory efficiency
     if sim_matrix.dtype != np.float32:
         sim_matrix = sim_matrix.astype(np.float32)
 
