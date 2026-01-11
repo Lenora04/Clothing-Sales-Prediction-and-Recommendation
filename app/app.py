@@ -1,16 +1,16 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from utils import load_data, load_models, load_sales_predictor, load_similarity_matrix
-from recommendation_helpers import recommend, explain_recommendation, visualize_products, predict_sales_volume, get_similar_products_by_sales, sales_improvement_hints, to_df
 import plotly.express as px
 import plotly.graph_objects as go
-import sys
-import os
-
+from utils import load_data, load_models, load_sales_predictor, load_similarity_matrix
+from recommendation_helpers import (
+    recommend, explain_recommendation, predict_sales_volume, 
+    get_similar_products_by_sales, sales_improvement_hints
+)
 
 # ==============================================================================
-# CACHING & OPTIMIZATION (Updated for Hugging Face)
+# 1. CACHING & INITIALIZATION
 # ==============================================================================
 
 @st.cache_data(show_spinner="Loading dataset...")
@@ -19,30 +19,17 @@ def get_data_cached():
 
 @st.cache_resource(show_spinner="Loading recommendation models...")
 def get_models_cached():
-    # Note: sim_matrix is now handled separately to save RAM
-    pipeline, svd, _ = load_models()
-    return pipeline, svd
+    return load_models()
 
 @st.cache_resource(show_spinner="Loading sales predictor...")
 def get_sales_predictor_cached():
     return load_sales_predictor()
 
-# Initialize core models on startup
-df, product_id_to_index = get_data_cached()
-pipeline, svd = get_models_cached()
-sales_model, sales_pipeline = get_sales_predictor_cached()
-
-# Similarity Matrix is handled separately due to 6GB size
-@st.cache_resource(show_spinner="Downloading 6GB Similarity Matrix... please wait.")
+@st.cache_resource(show_spinner="Loading Similarity Matrix...")
 def get_sim_matrix_cached():
     return load_similarity_matrix()
 
-# In the global scope, keep this as None
-sim_matrix = None
-
-# ==============================================================================
-# Page Configuration
-# ==============================================================================
+# Page Config
 st.set_page_config(
     page_title="Clothing Sales Recommender",
     page_icon="👕",
@@ -50,54 +37,37 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Load lightweight data only
+df, product_id_to_index = get_data_cached()
+
+# Initialize Session State for heavy models
+if 'pipeline' not in st.session_state:
+    st.session_state.pipeline = None
+if 'svd' not in st.session_state:
+    st.session_state.svd = None
+if 'sales_model' not in st.session_state:
+    st.session_state.sales_model = None
+if 'sim_matrix' not in st.session_state:
+    st.session_state.sim_matrix = None
+
 # Custom CSS
 st.markdown("""
 <style>
-    .main {
-        padding: 20px;
-    }
-    .card {
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        padding: 15px;
-        margin: 10px 0;
-        background-color: #f9f9f9;
-    }
-    .metric-card {
-        text-align: center;
-        padding: 20px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 10px;
-        margin: 10px;
-    }
-            /* --- Button Styling for Predict Button --- */
-        .stButton > button {
-            /* Set the base color to green */
-            background-color: #5ea879; 
-            color: white; 
-            border-color: #10b981;
-            transition: background-color 0.3s ease;
-        }
-
-        /* Change color on hover using the standard selector */
-        .stButton > button:hover {
-            background-color: #07db54; 
-            color: white;
-            border-color: #16a34a;
-            box-shadow: 0 4px 14px rgba(16,185,129,0.2);
-        }
-    
+    .main { padding: 20px; }
+    .card { border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin: 10px 0; background-color: #f9f9f9; min-height: 200px; }
+    .metric-card { text-align: center; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; margin: 10px; }
+    .stButton > button { background-color: #5ea879; color: white; border-color: #10b981; width: 100%; }
+    .stButton > button:hover { background-color: #07db54; color: white; border-color: #16a34a; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# Sidebar Navigation
+# 2. SIDEBAR NAVIGATION
 # ==============================================================================
 st.sidebar.title("Navigation")
 page = st.sidebar.radio(
     "Select Page",
-    ["Home","Sales Volume Predictor", "Product Search & Recommendations", "Analytics Dashboard", "Market Insights" ]
+    ["Home", "Sales Volume Predictor", "Product Search & Recommendations", "Analytics Dashboard", "Market Insights"]
 )
 
 # ==============================================================================
@@ -109,553 +79,124 @@ if page == "Home":
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>📦 Products</h3>
-            <p style="font-size: 32px; margin: 0;">{len(df):,}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        st.markdown(f'<div class="metric-card"><h3>📦 Products</h3><p style="font-size: 32px; margin: 0;">{len(df):,}</p></div>', unsafe_allow_html=True)
     with col2:
-        # 1. Get unique values (excluding 'missing' if present)
-        unique_brands = df['brand'].unique()
-        clean_brands = [str(b) for b in unique_brands if str(b).lower() != 'missing']
-        
-        # 2. Join them into a clean string
-        brands_str = ", ".join(clean_brands)
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>🏷️ Brands</h3>
-            <p style="font-size: 32px; margin: 0;">{brands_str}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        unique_brands = [b for b in df['brand'].unique() if str(b).lower() != 'missing']
+        st.markdown(f'<div class="metric-card"><h3>🏷️ Brands</h3><p style="font-size: 24px; margin: 0;">{", ".join(unique_brands[:3])}...</p></div>', unsafe_allow_html=True)
     with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>💰 Avg Price</h3>
-            <p style="font-size: 32px; margin: 0;">${df['price'].mean():.2f}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div class="metric-card"><h3>💰 Avg Price</h3><p style="font-size: 32px; margin: 0;">${df["price"].mean():.2f}</p></div>', unsafe_allow_html=True)
     
     st.markdown("---")
     st.subheader("About This System")
-    st.markdown("""
-    This hybrid recommendation engine combines:
-    - **Content-Based Filtering**: Product features (material, season, section, price)
-    - **Text Similarity**: Product names and descriptions (TF-IDF vectorization)
-    - **Feature Engineering**: One-hot encoding of categorical attributes
-    - **Dimensionality Reduction**: SVD for efficient similarity computation
-    
-    **Features:**
-    - 🔍 Find similar products
-    - 📊 View product analytics
-    - 💡 Understand recommendations with explainability
-    - 📈 Explore market trends
-    """)
-
-# ==============================================================================
-# PAGE: PRODUCT SEARCH & RECOMMENDATIONS
-# ==============================================================================
-elif page == "Product Search & Recommendations":
-    st.title("Product Search & Recommendations")
-    st.markdown("---")
-    
-    # Lazy-load similarity matrix on first access
-    if sim_matrix is None:
-        with st.status("Fetching heavy model data from Hugging Face...", expanded=True) as status:
-            sim_matrix = get_sim_matrix_cached()
-            status.update(label="Model Loaded!", state="complete", expanded=False)
-    
-    if 'product_names_cache' not in st.session_state:
-        st.session_state.product_names_cache = df['name'].unique().tolist()
-    
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        selected_product_name = st.selectbox(
-            "Select a Product",
-            st.session_state.product_names_cache,
-            key="product_select"
-        )
-    with col2:
-        top_n = st.number_input("Top N Recommendations", min_value=1, max_value=20, value=5)
-    
-    if selected_product_name:
-        matching_rows = df[df['name'] == selected_product_name]
-        if len(matching_rows) > 0:
-            selected_product_id = matching_rows.iloc[0]['product_id']
-            idx = product_id_to_index.get(selected_product_id)
-
-            # 🛑 1. Check if product is in the Lite matrix range
-            if idx is None or idx >= sim_matrix.shape[0]:
-                st.warning("⚠️ This product is not in the 'Lite' demo database. Please select a product from the top of the list to see recommendations.")
-                
-                # We still show the product details even if we can't recommend
-                st.markdown("### Selected Product Details")
-                st.write(df[df['product_id'] == selected_product_id].iloc[0].to_dict())
-            
-            # 🛑 2. If it IS in the matrix, run the full UI
-            else:   
-                st.markdown("### Selected Product")
-                query_product = df[df['product_id'] == selected_product_id].iloc[0]
-                
-                # Metrics Row
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Price", f"${query_product['price']:.2f}")
-                m2.metric("Section", query_product['section'])
-                m3.metric("Season", query_product['season'])
-                m4.metric("Material", query_product['material'])
-                
-                with st.expander("📋 View Full Details"):
-                    st.write(query_product.to_dict())
-                
-                st.markdown("---")
-                st.markdown("### 🎯 Recommended Products")
-                
-                try:
-                    recommendations = recommend(
-                        selected_product_id, 
-                        product_id_to_index, 
-                        sim_matrix, 
-                        df, 
-                        top_n=top_n,
-                        include_score=True
-                    )
-                    
-                    if recommendations is not None and not recommendations.empty:
-                        # Grid Display
-                        rec_cols = st.columns(min(3, len(recommendations)))
-                        for i, (_, rec) in enumerate(recommendations.iterrows()):
-                            with rec_cols[i % 3]:
-                                st.markdown(f"""
-                                <div class="card">
-                                    <h4>{rec['name'][:30]}...</h4>
-                                    <p><b>Price:</b> ${rec['price']:.2f}</p>
-                                    <p><b>Similarity:</b> {rec.get('score', 0):.3f}</p>
-                                    <a href="{rec.get('url', '#')}" target="_blank">View Product →</a>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        
-                        # Explainability
-                        st.markdown("---")
-                        st.markdown("### 💡 Why These Recommendations?")
-                        with st.expander("View Explainability"):
-                            explanation = explain_recommendation(selected_product_id, recommendations.iloc[0]['product_id'], df)
-                            st.info(f"**Top matching features:** {explanation}")
-                            
-                        # Table
-                        st.markdown("### 📋 Detailed Recommendations Table")
-                        st.dataframe(recommendations[['name', 'section', 'price', 'score']].astype(str), use_container_width=True)
-                
-                except Exception as e:
-                    st.error(f"Error generating recommendations: {e}")
-
-# ==============================================================================
-# PAGE: ANALYTICS DASHBOARD
-# ==============================================================================
-elif page == "Analytics Dashboard":
-    st.title("Analytics Dashboard")
-    st.markdown("---")
-    
-    # Key metrics
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Products", len(df))
-    with col2:
-        st.metric("Unique Brands", df['brand'].nunique())
-    with col3:
-        st.metric("Average Sales Volume", f"{df['sales_volume'].mean():.0f}")
-    with col4:
-        st.metric("Price Range", f"${df['price'].min():.2f} - ${df['price'].max():.2f}")
-    
-    st.markdown("---")
-    
-    # Charts
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📦 Products by Section")
-        section_counts = df['section'].value_counts()
-        fig = px.bar(
-            x=section_counts.index,
-            y=section_counts.values,
-            labels={'x': 'Section', 'y': 'Count'},
-            color=section_counts.values,
-            color_continuous_scale='Viridis'
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader("🌍 Products by Season")
-        season_counts = df['season'].value_counts()
-        fig = px.pie(
-            labels=season_counts.index,
-            values=season_counts.values,
-            title="Product Distribution by Season"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("💰 Price Distribution")
-        fig = px.histogram(
-            df,
-            x='price',
-            nbins=50,
-            title="Price Distribution",
-            labels={'price': 'Price ($)'}
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader("📈 Sales Volume Distribution")
-        fig = px.histogram(
-            df,
-            x='sales_volume',
-            nbins=50,
-            title="Sales Volume Distribution",
-            labels={'sales_volume': 'Sales Volume'}
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Price vs Sales Volume scatter
-    st.subheader("💹 Price vs Sales Volume")
-    fig = px.scatter(
-        df.sample(min(1000, len(df))),  # Sample for performance
-        x='price',
-        y='sales_volume',
-        color='section',
-        size='sales_volume',
-        hover_name='name',
-        title="Product Price vs Sales Volume"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-# ==============================================================================
-# PAGE: MARKET INSIGHTS
-# ==============================================================================
-elif page == "Market Insights":
-    st.title("Market Insights")
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("🏆 Top Brands by Sales")
-        top_brands = df.groupby('brand')['sales_volume'].sum().nlargest(10)
-        fig = px.bar(
-            x=top_brands.values,
-            y=top_brands.index,
-            orientation='h',
-            title="Top 10 Brands by Total Sales",
-            labels={'x': 'Total Sales Volume', 'y': 'Brand'}
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader("⭐ Best Selling Products")
-        top_products = df.nlargest(10, 'sales_volume')[['name', 'sales_volume', 'price']]
-        fig = px.bar(
-            top_products,
-            x='sales_volume',
-            y='name',
-            orientation='h',
-            title="Top 10 Best Selling Products",
-            labels={'sales_volume': 'Sales Volume', 'name': 'Product'},
-            color='price',
-            color_continuous_scale='Turbo'
-        )
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Material popularity
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("🧵 Popular Materials")
-        material_sales = df.groupby('material')['sales_volume'].sum().nlargest(15)
-        fig = px.bar(
-            x=material_sales.index,
-            y=material_sales.values,
-            title="Top Materials by Sales",
-            labels={'x': 'Material', 'y': 'Total Sales Volume'}
-        )
-        fig.update_xaxes(tickangle=45)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.subheader("🌏 Origin Analysis")
-        origin_sales = df.groupby('origin')['sales_volume'].sum().nlargest(15)
-        fig = px.bar(
-            x=origin_sales.index,
-            y=origin_sales.values,
-            title="Top Origins by Sales",
-            labels={'x': 'Origin', 'y': 'Total Sales Volume'}
-        )
-        fig.update_xaxes(tickangle=45)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Seasonal trends
-    st.subheader("🌡️ Sales Trends by Season and Section")
-    season_section = df.groupby(['season', 'section'])['sales_volume'].sum().reset_index()
-    fig = px.bar(
-        season_section,
-        x='season',
-        y='sales_volume',
-        color='section',
-        barmode='group',
-        title="Sales by Season and Section",
-        labels={'sales_volume': 'Total Sales Volume'}
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    st.write("This tool provides sales forecasting and product recommendations using Hybrid Filtering and Gradient Boosting.")
 
 # ==============================================================================
 # PAGE: SALES VOLUME PREDICTOR
 # ==============================================================================
 elif page == "Sales Volume Predictor":
     st.title("Sales Volume Predictor")
-    st.markdown("---")
     
-    if sales_model is None:
-        st.error("❌ Sales volume predictor model not available. Please train the model first.")
-        st.info("Run notebook: `notebooks/03_multi_model_comparison.ipynb`")
-    else:
-        st.markdown("""
-        Predict the expected sales volume for a product based on its features.
-        Enter product characteristics and get an estimate of how well it will sell.
-        """)
+    if st.session_state.sales_model is None:
+        with st.spinner("Loading prediction model weights..."):
+            st.session_state.sales_model, _ = get_sales_predictor_cached()
+
+    st.subheader("📝 Product Features")
+    col1, col2 = st.columns(2)
+    with col1:
+        price = st.number_input("💰 Price ($)", 0.0, 1000.0, 50.0)
+        promotion = st.selectbox("📢 Promotion", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
+        seasonal = st.selectbox("🌡️ Seasonal", [0, 1], format_func=lambda x: "Yes" if x == 1 else "No")
+        material = st.selectbox("🧵 Material", df['material'].unique().tolist())
+        origin = st.selectbox("🌏 Origin", df['origin'].unique().tolist())
+        terms = st.selectbox("🔍 Product Term", df['terms'].unique().tolist())
+    with col2:
+        section = st.selectbox("🏗️ Section", df['section'].unique().tolist())
+        season = st.selectbox("🌍 Season", df['season'].unique().tolist())
+        product_position = st.selectbox("📍 Position", ['Aisle', 'End-cap', 'Front of Store'])
+        product_name = st.text_input("🏷️ Product Name", "New Summer Shirt")
+        product_description = st.text_area("📄 Description", "Comfortable cotton shirt.")
+
+    if st.button("🔮 Predict Sales Volume"):
+        input_df = pd.DataFrame([{
+            'name': product_name, 'description': product_description, 'price': price,
+            'promotion': promotion, 'seasonal': seasonal, 'section': section,
+            'season': season, 'material': material, 'origin': origin, 
+            'product_position': product_position, 'terms': terms
+        }])
         
-        # Create input form
-        st.subheader("📝 Product Features")
+        # Feature engineering for prediction
+        input_df['desc_len'] = input_df['description'].str.len()
+        input_df['name_len'] = input_df['name'].str.len()
+        input_df['desc_word_count'] = input_df['description'].str.split().str.len()
+        input_df['price_per_word'] = input_df['price'] / (input_df['desc_word_count'] + 1)
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            price = st.number_input(
-                "💰 Price ($)",
-                min_value=0.0,
-                max_value=1000.0,
-                value=50.0,
-                step=1.0
-            )
-            
-            promotion = st.selectbox(
-                "📢 Promotion",
-                options=[0, 1],
-                format_func=lambda x: "Yes" if x == 1 else "No"
-            )
-            
-            seasonal = st.selectbox(
-                "🌡️ Seasonal",
-                options=[0, 1],
-                format_func=lambda x: "Yes" if x == 1 else "No"
-            )
-
-            material = st.selectbox(
-                "🧵 Material", 
-                options=df['material'].unique().tolist(), 
-                key='pred_material'
-            )
-
-            origin = st.selectbox(
-                "🌏 Origin", 
-                options=df['origin'].unique().tolist(), 
-                key='pred_origin' 
-            )
-            trained_terms = [t for t in df['terms'].unique() if str(t).lower() != 'missing']
-
-            # 2. Add the 'Other' option
-            selectbox_options = trained_terms + ['Other']
-
-            terms = st.selectbox(
-                "🔍 Product Term", 
-                options=selectbox_options,
-                key='pred_terms',
-                help="The specific product category/term (e.g., jackets, shoes) used for sales modeling."
-            )
-        
-        
-        with col2:
-            section = st.selectbox(
-                "🏗️ Section", 
-                options=df['section'].unique().tolist(), 
-                key='pred_section'
-            )
-
-            season = st.selectbox(
-                "🌍 Season", 
-                options=df['season'].unique().tolist(), 
-                key='pred_season'
-            )
-            
-            product_position = st.selectbox(
-                "📍 Product Position",
-                options=['Aisle', 'End-cap', 'Front of Store'],
-                key='pred_position'
-            )
-
-            # Add placeholders for the text columns (needed by TF-IDF)
-            product_name = st.text_input(
-                "🏷️ Product Name", 
-                key='pred_name'
-            )
-            product_description = st.text_area(
-                "📄 Product Description",
-                key='pred_description'
-            )
-        
-        # Make prediction
-        if st.button("🔮 Predict Sales Volume", use_container_width=True):
-            # Prepare input data
-            
-            input_df = pd.DataFrame([{
-                'name': product_name,
-                'description': product_description,
-                'price': price,
-                'promotion': promotion,
-                'seasonal': seasonal,
-                'section': section,
-                'season': season,
-                'material': material,
-                'origin': origin,              
-                'product_position': product_position,
-                'terms': terms
-            }])
-
-            input_df['desc_len'] = input_df['description'].str.len()
-            input_df['name_len'] = input_df['name'].str.len()
-
-            input_df['desc_word_count'] = input_df['description'].str.split().str.len()
-            input_df['name_word_count'] = input_df['name'].str.split().str.len()
-
-            input_df['price_per_word'] = input_df['price'] / (input_df['desc_word_count'] + 1)
-            input_df['price_per_name_word'] = input_df['price'] / (input_df['name_word_count'] + 1)       
-
-            try:
-                # Get prediction (pass feature pipeline if available)
-                result = predict_sales_volume(input_df, sales_model, df)
-
-
-                if result:
-                    st.markdown("---")
-                    st.subheader("📊 Prediction Results")
-
-                    # Emphasize predicted sales: large left card, compact stats on right
-                    left, right = st.columns([3, 1])
-
-                    with left:
-                        pred = int(round(result['prediction']))
-                        mean = int(round(result['dataset_mean']))
-                        delta_val = int(round(result['prediction'] - result['dataset_mean']))
-                        pct = result.get('percentile', 0.0)
-
-                        # Large visual for predicted sales
-                        st.markdown(f"""
-                        <div style="display:flex;align-items:center;justify-content:space-between;padding:18px;border-radius:10px;background:linear-gradient(90deg,#edf2ff,#e6fffa);">
-                            <div style="flex:1">
-                                <div style="font-size:28px;color:#1f2937;margin-bottom:6px;">🎯 Predicted Sales</div>
-                                <div style="font-size:56px;font-weight:700;color:#0b5b8c;">{pred:,}</div>
-                                <div style="font-size:14px;color:#374151;margin-top:6px;">vs catalog mean: <b>{mean:,}</b> &nbsp; (<span style="color:{'#059669' if delta_val>0 else '#b91c1c'}">{('+' if delta_val>=0 else '')}{delta_val:,}</span>)</div>
-                            </div>
-                            <div style="width:160px;text-align:center;padding-left:18px;border-left:1px solid rgba(0,0,0,0.06)">
-                                <div style="font-size:12px;color:#6b7280">Percentile</div>
-                                <div style="font-size:28px;font-weight:700;color:#111827;margin-top:6px">{pct:.1f}%</div>
-                                <div style="font-size:11px;color:#6b7280;margin-top:6px">% of products below this estimate</div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-                    with right:
-                        # Compact supporting metrics
-                        st.markdown("<div style='padding:6px'>", unsafe_allow_html=True)
-                        st.metric("📈 Dataset Average", f"{result['dataset_mean']:.0f}")
-                        st.metric("📍 Dataset Median", f"{result['dataset_median']:.0f}")
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-                    st.markdown("---")
-                    sigma = result['dataset_std']
-                    
-                    # Interpretation
-                    st.subheader("💡 Interpretation")
-                    
-                    percentile = result['percentile']
-                    if percentile >= 75:
-                        interpretation = "🟢 **High Sales Potential** - This product is expected to perform better than most items in the catalog."
-                    elif percentile >= 50:
-                        interpretation = "🟡 **Average Sales Potential** - This product is expected to perform around the median."
-                    else:
-                        interpretation = "🔴 **Lower Sales Potential** - Consider optimizing price, description, or features."
-                    
-                    st.info(interpretation)
-
-                    st.markdown("---")
-                    st.subheader("🚀 What could increase sales?")
-
-                    input_dict = input_df.iloc[0].to_dict()
-
-
-                    base_pred, improvements = sales_improvement_hints(
-                        input_dict,
-                        sales_model,
-                        df
-                    )
-
-                    if improvements:
-                        for label, delta in improvements[:4]:
-                            st.success(f"{label} → **+{int(delta)} sales units**")
-                    else:
-                        st.info("This product is already near optimal based on the model.")
-
-                    
-                    # Show similar products by sales
-                    st.markdown("---")
-                    st.subheader("🔗 Similar Products by Sales Volume")
-                    
-                    similar_prods = get_similar_products_by_sales(
-                        result['prediction'],
-                        df,
-                        tolerance=0.15,
-                        top_n=5
-                    )
-                    
-                    if len(similar_prods) > 0:
-                        st.dataframe(similar_prods, use_container_width=True)
-                        st.caption("Products with similar expected sales volume (±15%)")
-                    else:
-                        st.info("No similar products found in the dataset.")
-                    
-                    st.markdown("---")
-                    st.subheader("🧾 Product Summary")
-
-                    summary_items = {
-                        "Product Name": product_name,
-                        "Price": f"${price:.2f}",
-                        "Promotion": "Yes" if promotion else "No",
-                        "Seasonal": "Yes" if seasonal else "No",
-                        "Material": material,
-                        "Section": section,
-                        "Season": season,
-                        "Product Position": product_position
-                    }
-
-                    with st.expander("Details"):
-                        for k, v in summary_items.items():
-                            st.write(f"**{k}**: {v}")
-
-                
-            except Exception as e:
-                st.error(f"❌ Prediction failed: {e}")
-                st.info("Ensure the model is trained and all features are provided.")
+        try:
+            result = predict_sales_volume(input_df, st.session_state.sales_model, df)
+            if result:
+                st.success(f"Predicted Sales Volume: {int(result['prediction'])}")
+                st.metric("Percentile Rank", f"{result['percentile']:.1f}%")
+        except Exception as e:
+            st.error(f"Prediction Error: {e}")
 
 # ==============================================================================
+# PAGE: PRODUCT SEARCH & RECOMMENDATIONS
+# ==============================================================================
+elif page == "Product Search & Recommendations":
+    st.title("Product Search & Recommendations")
+    
+    if st.session_state.sim_matrix is None:
+        with st.status("Loading Recommendation Engine...", expanded=True) as status:
+            st.session_state.pipeline, st.session_state.svd, _ = get_models_cached()
+            st.session_state.sim_matrix = get_sim_matrix_cached()
+            status.update(label="Ready!", state="complete", expanded=False)
+
+    if 'product_names_cache' not in st.session_state:
+        st.session_state.product_names_cache = df['name'].unique().tolist()
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        selected_product_name = st.selectbox("Select a Product", st.session_state.product_names_cache)
+    with col2:
+        top_n = st.number_input("Top N", 1, 20, 5)
+    
+    if selected_product_name:
+        match = df[df['name'] == selected_product_name]
+        if not match.empty:
+            pid = match.iloc[0]['product_id']
+            idx = product_id_to_index.get(pid)
+
+            if idx is None or idx >= st.session_state.sim_matrix.shape[0]:
+                st.warning("⚠️ This product is not in the Lite Demo range. Please try products from the top of the list.")
+            else:
+                try:
+                    recs = recommend(pid, product_id_to_index, st.session_state.sim_matrix, df, top_n=top_n, include_score=True)
+                    if not recs.empty:
+                        cols = st.columns(3)
+                        for i, (_, row) in enumerate(recs.iterrows()):
+                            with cols[i % 3]:
+                                st.markdown(f'<div class="card"><h4>{row["name"][:30]}...</h4><p>Price: ${row["price"]:.2f}</p><p>Score: {row.get("score",0):.3f}</p></div>', unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Recommendation Error: {e}")
+
+# ==============================================================================
+# PAGE: ANALYTICS & INSIGHTS
+# ==============================================================================
+elif page == "Analytics Dashboard":
+    st.title("Analytics Dashboard")
+    col1, col2 = st.columns(2)
+    with col1:
+        fig = px.bar(df['section'].value_counts(), title="Products by Section")
+        st.plotly_chart(fig, use_container_width=True)
+    with col2:
+        fig = px.pie(df, names='season', title="Seasonal Distribution")
+        st.plotly_chart(fig, use_container_width=True)
+
+elif page == "Market Insights":
+    st.title("Market Insights")
+    top_brands = df.groupby('brand')['sales_volume'].sum().nlargest(10).reset_index()
+    fig = px.bar(top_brands, x='sales_volume', y='brand', orientation='h', title="Top Brands by Volume")
+    st.plotly_chart(fig, use_container_width=True)
+
 # Footer
-# ==============================================================================
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; padding: 20px; color: #888;">
-    <p><b>Clothing Sales Prediction & Recommendation System</b></p>
-    <p>Built with Streamlit | Machine Learning </p>
-</div>
-""", unsafe_allow_html=True)
+st.caption("Optimized for Streamlit Cloud")
