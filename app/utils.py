@@ -1,53 +1,31 @@
 """
-Utility functions for loading data and models.
+Utility functions for loading data and models from Hugging Face.
 """
 import pandas as pd
 import numpy as np
 import joblib
 import os
+import streamlit as st
 from huggingface_hub import hf_hub_download
 
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# define all paths relative to that ROOT_DIR
-DATA_PATH = os.path.join(ROOT_DIR, 'data', 'processed', 'clean_clothing_sales.csv')
-MODELS_DIR = os.path.join(ROOT_DIR, 'models')
-# Specific model paths
-PIPELINE_PATH = os.path.join(MODELS_DIR, 'hybrid_recommender_pipeline.pkl')
-SVD_PATH = os.path.join(MODELS_DIR, 'svd_transformer.pkl')
-SIM_MATRIX_PATH = os.path.join(MODELS_DIR, 'hybrid_similarity_matrix.npz')
-SALES_PREDICTOR_PATH = os.path.join(MODELS_DIR, 'sales_gb_tuned_pipeline.pkl')
-FEATURE_PIPELINE_PATH = os.path.join(MODELS_DIR, 'feature_engineering_pipeline.pkl')
-
 REPO_ID = "lenoraravindi/clothing-sales-models"
 
-
+@st.cache_resource
 def load_data():
     """
-    Load the processed dataset with optimized dtypes and create product ID to index mapping.
-    
-    Returns:
-        tuple: (dataframe, product_id_to_index_dict)
+    Downloads and loads the processed dataset from Hugging Face.
     """
+    file_path = hf_hub_download(repo_id=REPO_ID, filename="clean_clothing_sales.csv")
+    
     df = pd.read_csv(
-        DATA_PATH,
+        file_path,
         dtype={
-            'price': 'float32',
-            'sales_volume': 'int32',
-            'desc_len': 'int16',
-            'name_len': 'int16',
-            'desc_word_count': 'int16',
-            'price_per_word': 'float32',
-            'promotion': 'int8',
-            'seasonal': 'int8',
-            'product_position': 'category',
-            'product_category': 'category',
-            'section': 'category',
-            'season': 'category',
-            'material': 'category',
-            'origin': 'category',
-            'brand': 'category'
+            'price': 'float32', 'sales_volume': 'int32', 'desc_len': 'int16',
+            'name_len': 'int16', 'desc_word_count': 'int16', 'price_per_word': 'float32',
+            'promotion': 'int8', 'seasonal': 'int8', 'product_position': 'category',
+            'product_category': 'category', 'section': 'category', 'season': 'category',
+            'material': 'category', 'origin': 'category', 'brand': 'category'
         }
     )
     df['product_id'] = df['product_id'].astype(str)
@@ -61,117 +39,54 @@ def load_data():
         else:
             df[col] = df[col].fillna(0)
 
-    # Create stable product ID to index mapping
     product_id_to_index = pd.Series(df.index.values, index=df['product_id']).to_dict()
-    
     return df, product_id_to_index
 
-
+@st.cache_resource
 def load_models():
-    # This downloads the file from HF and returns the local cached path
+    """
+    Loads the recommendation pipelines from Hugging Face.
+    """
     pipeline_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_recommender_pipeline.pkl")
-    pipeline = joblib.load(pipeline_path)
-    
     svd_path = hf_hub_download(repo_id=REPO_ID, filename="svd_transformer.pkl")
+    
+    pipeline = joblib.load(pipeline_path)
     svd = joblib.load(svd_path)
     
     return pipeline, svd, None
 
-
+@st.cache_resource
 def load_similarity_matrix():
     """
-    Lazy-load the similarity matrix only when needed for recommendations.
-    Call this function only in recommendation_helpers.py when sim_matrix is needed.
-    
-    Returns:
-        np.ndarray: similarity_matrix
+    Downloads and loads the large similarity matrix from Hugging Face.
     """
-    # Prefer a memory-mapped float32 .npy file for fast, low-memory loads
-    npy_path = os.path.join(MODELS_DIR, 'hybrid_similarity_matrix_float32.npy')
-    compressed_path = os.path.join(MODELS_DIR, 'hybrid_similarity_matrix_float32.npz')
     matrix_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_similarity_matrix.npz")
     sim_matrix_data = np.load(matrix_path)
-
-    if os.path.exists(npy_path):
-        # Load as memory-mapped read-only array
-        return np.load(npy_path, mmap_mode='r')
-
-    # If .npy not present, try existing NPZ and create float32 .npy for future runs
-    if not os.path.exists(SIM_MATRIX_PATH):
-        raise FileNotFoundError(f"Similarity matrix not found at {SIM_MATRIX_PATH}")
-
-    sim_matrix_data = np.load(SIM_MATRIX_PATH)
-    # prefer key 'matrix' or 'similarity_matrix'
+    
+    # Try to find the correct key in the .npz file
     if 'matrix' in sim_matrix_data:
         sim_matrix = sim_matrix_data['matrix']
     elif 'similarity_matrix' in sim_matrix_data:
         sim_matrix = sim_matrix_data['similarity_matrix']
     else:
-        # fallback: take the first array in the npz
         keys = list(sim_matrix_data.files)
-        if not keys:
-            raise ValueError(f"No arrays found inside {SIM_MATRIX_PATH}")
         sim_matrix = sim_matrix_data[keys[0]]
 
-    # Convert to float32 if necessary
     if sim_matrix.dtype != np.float32:
         sim_matrix = sim_matrix.astype(np.float32)
 
-    # Save a memory-mapped friendly .npy and a compressed .npz copy for storage
-    try:
-        # Save .npy (overwrites if exists)
-        np.save(npy_path, sim_matrix)
-        # Save compressed copy for smaller disk footprint
-        np.savez_compressed(compressed_path, matrix=sim_matrix)
-    except Exception:
-        # If saving fails, continue and return the array in-memory
-        return sim_matrix
+    return sim_matrix
 
-    # Return a memory-mapped .npy for efficient future loads
-    return np.load(npy_path, mmap_mode='r')
-
-
+@st.cache_resource
 def load_sales_predictor():
     """
-    Load pre-trained sales volume prediction model.
-    
-    Returns:
-        tuple: (model, feature_pipeline)
+    Loads the Sales Prediction Gradient Boosting model from Hugging Face.
     """
-    # Discover available sales predictor files in the models directory.
-    # Prefer gradient-boosting/XGBoost/GBR-named models when available.
-    candidate_files = []
-    if os.path.isdir(MODELS_DIR):
-        for fname in os.listdir(MODELS_DIR):
-            if fname.lower().endswith('.pkl') and fname.lower().startswith('sales'):
-                candidate_files.append(os.path.join(MODELS_DIR, fname))
-
-    # If explicit SALES_PREDICTOR_PATH exists, include it as a candidate too
-    if os.path.exists(SALES_PREDICTOR_PATH):
-        candidate_files.append(SALES_PREDICTOR_PATH)
-
-    if not candidate_files:
-        raise FileNotFoundError(f"No sales predictor files found in {MODELS_DIR} or {SALES_PREDICTOR_PATH}")
-
-    # Prefer files that indicate gradient boosting or gb/xgb in the filename
-    preferred_keywords = ['gradient', 'gboost', 'gb', 'xgb', 'gbr', 'boosting']
-    selected = None
-    for f in candidate_files:
-        low = os.path.basename(f).lower()
-        if any(k in low for k in preferred_keywords):
-            selected = f
-            break
-
-    # If none matched preferred keywords, pick the most recently modified candidate
-    if selected is None:
-        candidate_files = sorted(candidate_files, key=lambda p: os.path.getmtime(p), reverse=True)
-        selected = candidate_files[0]
-
-    model = joblib.load(selected)
-
-    # Load feature engineering pipeline if available
-    feature_pipeline = None
-    if os.path.exists(FEATURE_PIPELINE_PATH):
-        feature_pipeline = joblib.load(FEATURE_PIPELINE_PATH)
-
-    return model, feature_pipeline
+    model_path = hf_hub_download(repo_id=REPO_ID, filename="sales_gb_tuned_pipeline.pkl")
+    # If you have a separate feature engineering pkl, download it here too
+    # feature_path = hf_hub_download(repo_id=REPO_ID, filename="feature_engineering_pipeline.pkl")
+    
+    model = joblib.load(model_path)
+    # feature_pipeline = joblib.load(feature_path) # Uncomment if needed
+    
+    return model, None # Return feature_pipeline as second arg if loaded
