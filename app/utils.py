@@ -1,13 +1,31 @@
-"""
-Utility functions for loading data and models from Hugging Face.
-No Streamlit decorators here to avoid circular import errors.
-"""
 import pandas as pd
 import numpy as np
 import joblib
+import os
+import streamlit as st
 from huggingface_hub import hf_hub_download
 
 REPO_ID = "lenoraravindi/clothing-sales-models"
+
+# --- CACHING WRAPPERS ---
+
+@st.cache_data(show_spinner="Loading dataset...")
+def get_data_cached():
+    return load_data()
+
+@st.cache_resource(show_spinner="Loading recommendation models...")
+def get_models_cached():
+    return load_models()
+
+@st.cache_resource(show_spinner="Loading sales predictor...")
+def get_sales_predictor_cached():
+    return load_sales_predictor()
+
+@st.cache_resource(show_spinner="Loading Similarity Matrix...")
+def get_sim_matrix_cached():
+    return load_similarity_matrix()
+
+# --- ORIGINAL LOADING FUNCTIONS ---
 
 def load_data():
     file_path = hf_hub_download(repo_id=REPO_ID, filename="clean_clothing_sales.csv")
@@ -37,17 +55,17 @@ def load_data():
 def load_models():
     pipeline_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_recommender_pipeline.pkl")
     svd_path = hf_hub_download(repo_id=REPO_ID, filename="svd_transformer.pkl")
-    return joblib.load(pipeline_path), joblib.load(svd_path)
+    pipeline = joblib.load(pipeline_path)
+    svd = joblib.load(svd_path)
+    return pipeline, svd, None # Added 3rd return to match app.py expectation
 
 def load_similarity_matrix():
     matrix_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_similarity_matrix_float32.npz")
     sim_matrix_data = np.load(matrix_path)
-    if 'matrix' in sim_matrix_data:
-        full_matrix = sim_matrix_data['matrix']
-    else:
-        full_matrix = sim_matrix_data[list(sim_matrix_data.files)[0]]
+    full_matrix = sim_matrix_data['matrix'] if 'matrix' in sim_matrix_data else sim_matrix_data[list(sim_matrix_data.files)[0]]
     return full_matrix[:500, :500].astype(np.float32)
 
 def load_sales_predictor():
     model_path = hf_hub_download(repo_id=REPO_ID, filename="sales_gb_tuned_pipeline.pkl")
-    return joblib.load(model_path), None
+    model = joblib.load(model_path)
+    return model, None
