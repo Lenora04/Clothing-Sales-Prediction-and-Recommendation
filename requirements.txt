@@ -1,6 +1,6 @@
 pandas
 numpy
-scikit-learn
+scikit-learn==1.7.1
 joblib
 streamlit
 plotly
@@ -8,4 +8,5 @@ matplotlib
 seaborn
 annoy
 huggingface_hub
+
 
