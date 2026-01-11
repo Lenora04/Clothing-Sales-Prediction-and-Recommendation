@@ -78,10 +78,17 @@ def main():
 
         if submit:
             input_data = {
-                "name": name, "description": desc, "price": price, "promotion": promo,
-                "material": material, "section": section, "season": season, 
-                "seasonal": 1 if season != "All-Season" else 0, "origin": origin,
-                "product_position": "Aisle"
+                "name": name, 
+                "description": desc, 
+                "price": price, 
+                "promotion": promo,
+                "material": material, 
+                "section": section, 
+                "season": season, 
+                "seasonal": 1 if season != "All-Season" else 0, 
+                "origin": origin,
+                "product_position": product_position,
+                "terms": terms  
             }
             # Use to_df helper for feature engineering
             input_df = to_df(input_data)
