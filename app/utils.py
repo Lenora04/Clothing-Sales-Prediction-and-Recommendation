@@ -53,7 +53,7 @@ def load_models():
     pipeline = joblib.load(pipeline_path)
     svd = joblib.load(svd_path)
     
-    return pipeline, svd, None
+    return pipeline, svd
 
 @st.cache_resource
 def load_similarity_matrix():
