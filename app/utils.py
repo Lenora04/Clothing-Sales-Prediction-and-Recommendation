@@ -57,27 +57,19 @@ def load_models():
 
 @st.cache_resource
 def load_similarity_matrix():
-    """
-    Downloads and loads the float32 similarity matrix.
-    Uses memory mapping to save RAM.
-    """
-    # Use the smaller float32 file
     matrix_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_similarity_matrix_float32.npz")
-    
-    # Load the compressed npz
     sim_matrix_data = np.load(matrix_path)
     
-    # Extract the matrix
+    # Extract the full matrix
     if 'matrix' in sim_matrix_data:
-        sim_matrix = sim_matrix_data['matrix']
+        full_matrix = sim_matrix_data['matrix']
     else:
-        keys = list(sim_matrix_data.files)
-        sim_matrix = sim_matrix_data[keys[0]]
+        full_matrix = sim_matrix_data[list(sim_matrix_data.files)[0]]
 
-    # Ensure it is float32 for memory efficiency
-    if sim_matrix.dtype != np.float32:
-        sim_matrix = sim_matrix.astype(np.float32)
-
+    # Slice it to the first 500 products for the Cloud Demo
+    # This ensures the app doesn't crash on the 1GB RAM limit
+    sim_matrix = full_matrix[:500, :500].astype(np.float32)
+    
     return sim_matrix
 
 @st.cache_resource
