@@ -1,8 +1,18 @@
+import sys
+import os
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
+
+import transformers 
+
+sys.modules['app'] = sys.modules[__name__]
+sys.modules['app.transformers'] = transformers
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import sys
-import os
 
 from utils import (
     get_data_cached, get_models_cached, 
@@ -12,8 +22,6 @@ from recommendation_helpers import (
     recommend, explain_recommendation, predict_sales_volume, 
     to_df, sales_improvement_hints
 )
-
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 def main():
     # 1. Setup
