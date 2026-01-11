@@ -11,7 +11,7 @@ from huggingface_hub import hf_hub_download
 
 REPO_ID = "lenoraravindi/clothing-sales-models"
 
-@st.cache_resource
+
 def load_data():
     """
     Downloads and loads the processed dataset from Hugging Face.
@@ -55,7 +55,7 @@ def load_models():
     
     return pipeline, svd
 
-@st.cache_resource
+
 def load_similarity_matrix():
     matrix_path = hf_hub_download(repo_id=REPO_ID, filename="hybrid_similarity_matrix_float32.npz")
     sim_matrix_data = np.load(matrix_path)
@@ -72,7 +72,7 @@ def load_similarity_matrix():
     
     return sim_matrix
 
-@st.cache_resource
+
 def load_sales_predictor():
     """
     Loads the Sales Prediction Gradient Boosting model from Hugging Face.
