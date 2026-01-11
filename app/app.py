@@ -8,42 +8,36 @@ import plotly.graph_objects as go
 import sys
 import os
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
 
 # ==============================================================================
-# CACHING & OPTIMIZATION
+# CACHING & OPTIMIZATION (Updated for Hugging Face)
 # ==============================================================================
 
 @st.cache_data(show_spinner="Loading dataset...")
 def get_data_cached():
-    """Cache dataset with optimized dtypes."""
     return load_data()
 
 @st.cache_resource(show_spinner="Loading recommendation models...")
 def get_models_cached():
-    """Cache recommender pipeline, SVD, and similarity matrix."""
-    return load_models()
+    # Note: sim_matrix is now handled separately to save RAM
+    pipeline, svd, _ = load_models()
+    return pipeline, svd
 
 @st.cache_resource(show_spinner="Loading sales predictor...")
 def get_sales_predictor_cached():
-    """Cache sales volume prediction model."""
     return load_sales_predictor()
 
-# Initialize all caches on startup
+# Initialize core models on startup
 df, product_id_to_index = get_data_cached()
-pipeline, svd, sim_matrix = get_models_cached()
+pipeline, svd = get_models_cached()
 sales_model, sales_pipeline = get_sales_predictor_cached()
 
-# Lazy-load similarity matrix only when needed
-@st.cache_resource(show_spinner="Loading similarity matrix...")
+# Similarity Matrix is handled separately due to 6GB size
+@st.cache_resource(show_spinner="Downloading 6GB Similarity Matrix... please wait.")
 def get_sim_matrix_cached():
-    """Lazy-load similarity matrix only on first recommendation request."""
     return load_similarity_matrix()
 
-# Start with None; load only when recommendations page is accessed
+# In the global scope, keep this as None
 sim_matrix = None
 
 # ==============================================================================
@@ -169,7 +163,9 @@ elif page == "Product Search & Recommendations":
     
     # Lazy-load similarity matrix on first access to recommendations page
     if sim_matrix is None:
-        sim_matrix = get_sim_matrix_cached()
+        with st.status("Fetching heavy model data from Hugging Face...", expanded=True) as status:
+            sim_matrix = get_sim_matrix_cached()
+            status.update(label="Model Loaded!", state="complete", expanded=False)
     
     # Cache product names in session state for faster rendering
     if 'product_names_cache' not in st.session_state:
